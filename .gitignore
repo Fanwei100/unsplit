@@ -16,6 +16,11 @@ build/
 develop-eggs/
 dist/
 downloads/
+Results/
+ServerData*
+Images/
+Models/
+evaluation/Models/
 eggs/
 .eggs/
 lib/

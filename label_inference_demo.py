@@ -10,7 +10,8 @@ from unsplit.models import *
 from unsplit.util import *
 
 
-dataset = sys.argv[1]
+# dataset = sys.argv[1]
+dataset = "mnist"
 count = 100
 
 # load datasets and initialize client, server, and clone models
@@ -51,7 +52,7 @@ for idx, (image, label) in enumerate(testloader):
         break
 
     # enumerate possible label values
-    label_vals = [i * torch.ones(len(label)).long() for i in range(10)] 
+    label_vals = [i * torch.ones(len(label)).long() for i in range(10)]
 
     # obtain gradient values from client
     client_opt.zero_grad()

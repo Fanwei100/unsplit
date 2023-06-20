@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -11,8 +12,12 @@ from unsplit.models import *
 from unsplit.util import *
 
 
-dataset = sys.argv[1]
-split_layer = int(sys.argv[2])
+# dataset = sys.argv[1]
+# split_layer = int(sys.argv[2])
+dataset,split_layer="mnist",2
+
+modelpath="Models_32_32/"
+os.makedirs(modelpath,exist_ok=True)
 
 # create results directory if doesn't exist.
 Path("results").mkdir(parents=True, exist_ok=True)
@@ -40,7 +45,7 @@ client_opt = torch.optim.Adam(client.parameters(), lr=0.001, amsgrad=True)
 server_opt = torch.optim.Adam(server.parameters(), lr=0.001, amsgrad=True)
 criterion = torch.nn.CrossEntropyLoss()
 
-epochs = 10
+epochs = 100
 for epoch in range(epochs):
     running_loss = 0
     for images, labels in trainloader:
@@ -59,8 +64,11 @@ for epoch in range(epochs):
         print(f'Epoch: {epoch} Loss: {running_loss / len(trainloader)} Acc: {get_test_score(client, server, testset, split=split_layer)}')
 print('Done.')
 
+torch.save(server, modelpath+"Server_"+dataset+"_"+str(split_layer)+".pt")
+torch.save(client, modelpath+"Client_"+dataset+"_"+str(split_layer)+".pt")
 
-# -- MODEL INVERSION & STEALING -- 
+
+# -- MODEL INVERSION & STEALING --
 print('Starting model inversion & stealing attack...')
 
 # load one example per class from the test set
@@ -72,7 +80,6 @@ results, losses = [], []
 for idx, target in enumerate(targetloader):
     # obtain client output
     client_out = client(target, end=split_layer)
-
     # perform the attack
     result = unsplit.model_inversion_stealing(clone, split_layer, client_out, target.size(),
                                                 main_iters=1000, input_iters=100, model_iters=100)
@@ -83,7 +90,7 @@ for idx, target in enumerate(targetloader):
     results.append(result)
     loss = mse(result, target)
     losses.append(loss)
-    save_image(result, f'results/{dataset}_{idx}.png')
+    save_image(result, f'Results/{dataset}_{split_layer}_{idx}.png')
     print(f'\tImage {idx} loss: {loss}')
 
 print(f'Average MSE: {sum(losses) / len(losses)}')

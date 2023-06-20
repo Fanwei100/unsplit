@@ -1,9 +1,19 @@
-import torch
+import torch,torchvision
 import matplotlib.pyplot as plt
 from torchvision import datasets, transforms
 import random
 import numpy as np
 
+def set_random_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+def _tensor_size(t):
+    return t.size()[1] * t.size()[2] * t.size()[3]
 
 # computes total variation for an image
 def TV(x):
@@ -20,9 +30,6 @@ def TV(x):
 def l2loss(x):
     return (x ** 2).mean()
 
-
-def _tensor_size(t):
-    return t.size()[1] * t.size()[2] * t.size()[3]
 
 
 # get random examples from a dataset
@@ -42,7 +49,7 @@ def get_examples_by_class(dataset, target, count=1):
     for image, label in dataset:
         if label == target:
             if count == 1:
-                return image
+                return [image]
             result.append(image)
         if len(result) == count:
             break
@@ -55,14 +62,15 @@ def normalize(result):
     if range_v > 0:
         normalized = (result - min_v) / range_v
     else:
-        normalized = torch.zeros(result.size())
+        normalized = torch.zeros(result.size()).to(result.device)
     return normalized
 
 
-def get_test_score(m1, m2, dataset, split=0):
+def get_test_score(m1, m2, dataset,device=torch.device("cpu"), split=0):
     score = 0
     imageloader = get_random_example(dataset, count=2000)
     for image, label in imageloader:
+        image,label=image.to(device),label.to(device)
         pred = m2(m1(image, end=split), start=split+1)
         if torch.argmax(pred) == label.detach():
             score += 1

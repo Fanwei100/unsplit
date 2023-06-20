@@ -1,0 +1,7 @@
+for Image we have 3 type of dataset mnist,f_mnist and cfar
+for text we can use newsgroup Dataset or Cola dataset for text classification. you can read about these from  https://scikit-learn.org/stable/modules/generated/sklearn.datasets.fetch_20newsgroups.html#sklearn.datasets.fetch_20newsgroups and https://nyu-mll.github.io/CoLA/
+for tabular dataset we can use ires,wine or load_breast_cancer you can read about these from here https://scikit-learn.org/stable/datasets/toy_dataset.html
+for time sires we can work cryptocruncy or stock market data or you can let me know from these datasets https://data.world/datasets/time-series
+Please let me know the datsets on which you want to work i will start work on that.
+
+

@@ -1,0 +1,288 @@
+import os,pandas as pd,cv2,torch,PIL
+from pathlib import Path
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import ImageGrid
+import numpy as np
+from evaluation.EvaluationMetrics import Evaluation
+from torchvision.datasets.vision import VisionDataset
+from typing import Any, Tuple
+from torchvision import transforms
+from sklearn.metrics import accuracy_score
+class Dataset(VisionDataset):
+    def __init__(self,folderpath,datasize=64) -> None:
+        self.transform= transforms.Compose([
+                 transforms.Resize(datasize),
+                 transforms.ToTensor(),
+    ])
+        files=os.listdir(folderpath)
+        self._labels=[f.split(".")[0].replace("_",",") for f in files]
+        self._image_files=[os.path.join(folderpath,f) for f in files]
+
+    def __len__(self) -> int:
+        return len(self._image_files)
+    def __getitem__(self, idx) -> Tuple[Any, Any]:
+        image_file, label = self._image_files[idx], self._labels[idx]
+        image = PIL.Image.open(image_file).convert("RGB")
+        if self.transform:
+            image = self.transform(image)
+        return image, label
+
+
+EvaluationMetrices={"RMSE": Evaluation.caclulateRMSE, "PNSR": Evaluation.caclulatePNSR, "SRE": Evaluation.caclulateSre,"SSIM": Evaluation.caclulateSsim,
+        "FSIM": Evaluation.caclulateFsim, "ISIM": Evaluation.caclulateIsim, "UIQ": Evaluation.caclulateUiq}
+
+def makeInversionGraph(model,dataset,seed,loss="mse",index=0,fig = None,imgsize=64,trainpercentage=0,EnhanceImages=False,convertColor=False,Classes=10,outdir="Results/Graphs/"):
+    traintype = "WithTraining_"+str(trainpercentage)+"/" if trainpercentage>0 else "WithoutTraining/"
+    baseimages=[cv2.imread(f"Images/Size_{imgsize}_{imgsize}/{dataset}_{i}_{index}.png") for i in range(Classes)]
+    # inversimages = [[cv2.imread("Results/"+traintype + f) for f in sorted(os.listdir("Results/"+traintype)) if f.startswith(model+"_"+dataset+"_"+str(i+1))] for i in range(6)]
+    resbasepath=f"Results/Size_{imgsize}_{imgsize}/{traintype}{model}_{dataset}_{loss}"
+    inversimages = [[cv2.imread(f"{resbasepath}_{sp}_{cl}_{index}_{seed}.png") for cl in range(Classes) if os.path.exists(f"{resbasepath}_{sp}_{cl}_{index}_{seed}.png")] for sp in range(1,7)]
+
+
+    if len(inversimages[0])==0: return
+    if convertColor:
+        baseimages = [cv2.cvtColor(img, cv2.COLOR_BGR2RGB) for img in baseimages]
+        inversimages=[[cv2.cvtColor(img, cv2.COLOR_BGR2RGB) for img in invimg] for invimg in inversimages]
+    if EnhanceImages:
+        inversimages=[[(img.astype(float)/(np.max(img)+1e-8)*255).astype(int) for img in invimg] for invimg in inversimages]
+
+
+    if fig is None: fig=plt.figure(figsize=(20., 15.))
+    grid = ImageGrid(fig,nrows_ncols=(len(inversimages)+1, Classes),  # creates 2x2 grid of axes
+                     axes_pad=0.1,  # pad between axes in inch.
+                     )
+
+    grid=list(grid)
+    for i,im in enumerate(baseimages):
+        # Iterating over the grid returns the Axes.
+        grid[i].imshow(im)
+
+    for i, imglist in enumerate(inversimages):
+        for j,im in enumerate(imglist):
+            grid[(i+1)*Classes+j].imshow(im)
+
+    midxsize=inversimages[0][0].shape[0]//2
+    midysize=inversimages[0][0].shape[1]//2
+    for i in range(Classes):
+        grid[i].set_xticks([midxsize])
+        grid[i].set_xticklabels([str(i)])
+
+    grid[0].set_yticks([midxsize])
+    grid[0].set_yticklabels(["Ref"])
+
+    for i in range(1,len(inversimages)+1):
+        grid[i*Classes].set_yticks([midysize])
+        grid[i*Classes].set_yticklabels([str(i)])
+
+    for g in grid:
+        for tick in g.xaxis.get_major_ticks():
+            tick.label.set_fontsize(70)
+        for tick in g.yaxis.get_major_ticks():
+            tick.label.set_fontsize(70)
+
+    grid[30].set_ylabel("Split Point",fontsize=70)
+    grid[64].set_xlabel("Image Index",fontsize=70)
+    fig.suptitle(f"Datase {dataset}, Model {model}, Loss {loss}, Index {index} {traintype[:-1]}",fontsize=30)
+    outdir=f"{outdir}{dataset}_{model}_{loss}/"
+    Path(outdir).mkdir(exist_ok=True,parents=True)
+    filepath=f"{outdir}{index}_{seed}_{traintype[:-1]}.png"
+    plt.savefig(filepath)
+    print("Save at ",filepath)
+    return filepath
+
+
+
+
+
+def makeInversionMetrics():
+    convertColor=True
+    index=1
+    makeInversionGraph("MnistNet","mnist",index=index)
+    makeInversionGraph("MnistNet","f_mnist",index=index)
+    makeInversionGraph("CifarNet","cifar",index=index)
+    makeInversionGraph("Vgg8Net","flower",index=index,convertColor=convertColor)
+    makeInversionGraph("CifarNet","flower",index=index,convertColor=convertColor)
+    makeInversionGraph("Vgg8Net","food",index=index,convertColor=convertColor)
+    makeInversionGraph("CifarNet","food",index=index,convertColor=convertColor)
+    plt.show()
+
+
+
+
+def makeMerircsGraph(model,dataset,metrics_list,index=0,trained=False,EnhanceImages=False,convertColor=False,Classes=10):
+    traintype = "WithTraining/" if trained else "WithoutTraining/"
+    baseimages = [cv2.imread(f"Images/{dataset}_{i}_{index}.png") for i in range(Classes)]
+    resbasepath = f"Results/{traintype}{model}_{dataset}"
+    inversimages = np.array([[cv2.imread(f"{resbasepath}_{sp}_{cl}_{index}.png") for cl in range(Classes) if os.path.exists(f"{resbasepath}_{sp}_{cl}_{index}.png")] for sp in range(1, 7)])
+    figure, axis = plt.subplots(1,len(metrics_list)+1,figsize=(20, 6))
+    for i,metrics in enumerate(metrics_list):
+        # i,j=i//colmcount,i%colmcount
+        metricsvalue= np.array([[EvaluationMetrices[metrics](inv,real) for inv,real in zip(invimg,baseimages)]for invimg in inversimages])
+        axis[i].plot(metricsvalue)
+        axis[i].set_xlabel("Split Point")
+        axis[i].set_ylabel(metrics)
+        axis[i].legend(["image"+str(i) for i in range(10)],ncol=4,bbox_to_anchor=(0.95,-0.2) )
+        axis[i].yaxis.grid()
+        axis[i].title.set_text(f"{metrics} for {model} with {dataset} dataset")
+    imgpath=makeInversionGraph(model, dataset, index=index, fig=None, trained=trained, EnhanceImages=EnhanceImages, convertColor=convertColor,Classes=Classes)
+    # imgpath="Results/Graphs/flower_Vgg8Net_WithoutTraining.png"
+    img=cv2.imread(imgpath)
+    h,w,_=img.shape
+    img=img[int(h*.13):int(h*(1-.13)),int(w*.122):int(w*(1-.1))]
+    h,w,_=img.shape
+    axis[-1].imshow(img)
+    axis[-1].title.set_text(f"{model} with {dataset} dataset")
+    axis[-1].set_yticks(np.arange(h//12,h,h//6))
+    axis[-1].set_yticklabels([str(i) for i in range(1,7)])
+    axis[-1].set_xticks(np.arange(w//20,w,w/10))
+    axis[-1].set_xticklabels([str(i) for i in range(10)])
+    figure.tight_layout(pad=2.0)
+    # figure.suptitle(f"{','.join(metrics_list)} for  {model} with {dataset} dataset",fontsize=30)
+    os.makedirs("Results/Graphs/MetricsGraph",exist_ok=True)
+    figure.savefig(f"Results/Graphs/MetricsGraph/{'_'.join(metrics_list)}_{dataset}_{model}_{index}_{traintype[:-1]}.png")
+
+def makeMerircGraph(model,dataset,metrics,index=0,trained=False,Classes=10):
+    traintype = "WithTraining/" if trained else "WithoutTraining/"
+    baseimages = [cv2.imread(f"Images/{dataset}_{i}_{index}.png") for i in range(Classes)]
+    resbasepath = f"Results/{traintype}{model}_{dataset}"
+    inversimages = np.array([[cv2.imread(f"{resbasepath}_{sp}_{cl}_{index}.png") for cl in range(Classes) if os.path.exists(f"{resbasepath}_{sp}_{cl}_{index}.png")] for sp in range(1, 7)])
+    metricsvalue= np.array([[EvaluationMetrices[metrics](inv,real) for inv,real in zip(invimg,baseimages)]for invimg in inversimages])
+    figure, axis = plt.subplots(1, 1, figsize=(20, 10))
+    axis.plot(metricsvalue)
+    axis.set_xlabel("Split Point",fontsize="20")
+    axis.set_ylabel(metrics,fontsize="20")
+    axis.legend(["image" + str(i) for i in range(10)], ncol=5, bbox_to_anchor=(0.8, -0.2),fontsize="20")
+    axis.yaxis.grid()
+    # axis.title.set_text(f"{metrics} for {model} with {dataset} dataset")
+    plt.title(f"{metrics} for {model} with {dataset} dataset",fontsize=25)
+    figure.tight_layout(pad=2.0)
+    os.makedirs("Results/Graphs/MetricsGraph",exist_ok=True)
+    figure.savefig(f"Results/Graphs/MetricsGraph/{dataset}_{model}_{index}_{traintype[:-1]}_{metrics}.png")
+
+def makeAverageLossGraph(dataset,model,trainpercentage=0,loss="mse",imgsize=64,index=0,outGraph="Results/Graphs/AverageLoss/"):
+    def addErrorBar(plt,mean,std,color,label):
+        # plt.plot(msemean,label="MSE")
+        plt.errorbar(range(6), mean, yerr=std,label=label, linestyle='--', marker='p',color=color, markerfacecolor=color,ecolor=color, markersize=10)
+
+    Path(outGraph).mkdir(exist_ok=True,parents=True)
+    trainpercentage= str(trainpercentage) if trainpercentage>0 else "No"
+    losses=pd.read_csv(f"Results/Size_{imgsize}_{imgsize}/CSVFiles/Losses.csv")
+    losses=losses[losses["Dataset"]==dataset]
+    losses=losses[losses["Model"]==model]
+    losses=losses[losses["Train"]==trainpercentage]
+    losses=losses[losses["Index"]==index]
+    losses=losses[losses["LossName"]==loss]
+    for cls,clgroup in losses.groupby("Class"):
+        msemean,ssimmean,fsimmean,msestd,ssimstd,fsimstd,rounds=[],[],[],[],[],[],[]
+        for sp,sgroup in clgroup.groupby("SplitLayer"):
+            lmean=sgroup[["MSE","SSIM","FSIM"]].mean()
+            lstd = sgroup[["MSE", "SSIM", "FSIM"]].std()
+            msemean.append(lmean["MSE"])
+            ssimmean.append(lmean["SSIM"])
+            fsimmean.append(lmean["FSIM"])
+            msestd.append(lstd["MSE"])
+            ssimstd.append(lstd["SSIM"])
+            fsimstd.append(lstd["FSIM"])
+            rounds.append(sgroup.shape[0])
+
+        addErrorBar(plt,msemean,msestd,"red","MSE")
+        addErrorBar(plt,ssimmean,ssimstd,"green","SSIM")
+        addErrorBar(plt,fsimmean,fsimstd,"blue","FSIM")
+        plt.xlabel("Split Point")
+        plt.xticks(range(6),[str(i) for i in range(1,7)])
+        plt.ylabel("Losses")
+        plt.legend()
+        rounds=f"{rounds[0]} rounds" if min(rounds)==max(rounds) else f"{max(rounds)} rounds, {min(rounds)} rounds"
+        plt.title(f"Dataset {dataset}, Model {model}, Attack {loss}, {rounds},\n Class {cls}, Index {index}, {'WithoutTraining' if trainpercentage=='No' else 'WithTraining_'+trainpercentage}")
+        plt.savefig(f"{outGraph}{dataset}_{model}_{loss}_{cls}_{index}_{'WithoutTraining' if trainpercentage=='No' else 'WithTraining_'+trainpercentage}.png")
+        plt.close()
+        # plt.show()
+
+def MakeAllMetrices(trainpercentage=[0],losses=["mse"],EnhanceImages=False,convertColor=False,Classes=10):
+    # metrics_list=("RMSE", "PNSR", "SRE","FSIM","UIQ")
+    # model, dataset, index,i = "Vgg8Net", "food", 0,3
+    # makeMerircGraph(model, dataset, metrics=metrics_list[i], index=index, trained=trained, Classes=Classes)
+    # makeInversionGraph(model, dataset, seeds[-1], loss=loss, index=index, trained=trained, EnhanceImages=EnhanceImages,convertColor=convertColor, Classes=Classes, outdir="Results/Graphs/")
+    seeds=np.unique(pd.read_csv("Results/Size_64_64/CSVFiles/Losses.csv")[["SEED"]].values[:,0])
+
+    for index in range(1):
+        for model in ["Vgg8Net"]:
+            for dataset in ["food"]:
+                for tp in trainpercentage:
+                    for loss in losses:
+                        makeAverageLossGraph(dataset, model, tp,loss)
+                    #     for seed in seeds:
+                    #         makeInversionGraph(model, dataset, seed,loss=loss, index=index, trainpercentage=tp, EnhanceImages=EnhanceImages,convertColor=convertColor, Classes=Classes, outdir="Results/Graphs/")
+                            # for i in range(len(metrics_list)):
+                            #     makeMerircGraph(model, dataset, metrics=metrics_list[i], index=index, trained=trained,Classes=Classes)
+                            # makeInversionGraph(model, dataset,seed, index=index, trained=trained, EnhanceImages=EnhanceImages, convertColor=convertColor,  Classes=10, outdir="Results/Graphs/MetricsGraph/")
+    # plt.show()
+
+def MakeLossGraphs(imgsize=64,Train="No",resultFolder="Results/Size_64_64",datalist=None,skipiter=0,n_key_columns=9,updateGraphs=False):
+    # lossFiles=[f"Resulcolumnsts/Size_{imgsize}_{imgsize}/CSVFiles/RegenrationLoss.csv",f"ServerData/Results/Size_{imgsize}_{imgsize}/CSVFiles/RegenrationLoss.csv"]
+    # losslist,alreadyhave=[],[]
+    # for lossFile in lossFiles:
+    #     with open(lossFile) as f:
+    #         data=[l[:-1].split(",") for l in f.readlines()[1:]]
+    #         data=[d for d in data if d[:9] not in alreadyhave]
+    #         losslist.extend(data)
+    #         alreadyhave.extend([l[:9] for l in losslist])
+    Train=[str(T) for T in Train]
+    with open(f"Results/Size_{imgsize}_{imgsize}/CSVFiles/RegenrationLoss.csv") as f:
+        losslist=[l[:-1].split(",") for l in f.readlines()[1:]]
+    losslist=[l for l in losslist if l[0] in Train]
+    losslist=sorted(losslist,key=lambda x:",".join(x[:9]))
+    for i in tqdm(range(0,len(losslist),2)):
+        plt.Figure()
+        haveplot=False
+        for lossr in losslist[i:i+2]:
+            traintype, modelname, dataset,lossname, split_layer, clas, idx, seed, Type=lossr[:9]
+            outfilename = f"{resultFolder}/LossGraph/{modelname}_{dataset}_{lossname}_{traintype}/{split_layer}_{clas}_{idx}_{seed}_WithoutTraining_{skipiter}.png"
+            if updateGraphs is False and os.path.exists(outfilename):
+                plt.close()
+                continue
+            if datalist is not None and dataset not in datalist: break
+            haveplot=True
+            plt.plot([float(l) for l in lossr[n_key_columns+skipiter:]], label=lossr[n_key_columns-1])
+        if haveplot is False:
+            plt.close()
+            continue
+        plt.xlabel("Iteration")
+        plt.ylabel("Loss")
+        plt.legend()
+        Path("/".join(outfilename.split("/")[:-1])).mkdir(parents=True,exist_ok=True)
+        plt.savefig(outfilename)
+        plt.close()
+
+
+
+def MakeLabelsCSV(folderpath,modelpath,batch_size=64,outfile="Results/Size_64_64/CSVFiles/Pred.csv"):
+    model=torch.load(modelpath)
+    columns=["Dataset","Food","LossName","split_layer","Actual class","index","Seed","Pred Class"]
+    dset=Dataset(folderpath)
+    dloader = torch.utils.data.DataLoader(dset, batch_size=batch_size)
+    lables,preds=[],[]
+    with torch.no_grad():
+        for d,l in dloader:
+            lables.extend(l)
+            pred=model(d.to("cuda"))
+            preds.append(torch.argmax(pred,dim=1).cpu().numpy())
+    preds=np.concatenate(preds)
+    lables=[l+","+str(p)+"\n" for p,l in zip(preds,lables)]
+    clases=[l[:-1].split(",") for l in lables]
+    target,pred=[int(c[4]) for c in clases],[int(c[7]) for c in clases]
+    lables.append("Accuracy Score ,"+str(accuracy_score(target,pred)))
+    with open(outfile,"w") as f:
+        f.write(",".join(columns)+"\n")
+        f.writelines(lables)
+
+
+if __name__ == '__main__':
+    # CombineLosses()
+    MakeAllMetrices(trainpercentage=[0,30],convertColor=True,losses=["mse","fsim","ssim"])
+    # for sk in [0,5,50,100,500]:
+    #     MakeLossGraphs(Train=[30],skipiter=sk,datalist=["food"])
+    # MakeLabelsCSV("Results/Size_64_64/WithoutTraining/", "evaluation/Models/Size_64_64/restnet_food.pt")
+
+
