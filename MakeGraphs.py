@@ -10,13 +10,18 @@ from typing import Any, Tuple
 from torchvision import transforms
 from sklearn.metrics import accuracy_score
 class Dataset(VisionDataset):
-    def __init__(self,folderpath,datasize=64) -> None:
+    def __init__(self,folderpath,dataset,outfilepath,train_percent="0",datasize=64) -> None:
         self.transform= transforms.Compose([
                  transforms.Resize(datasize),
                  transforms.ToTensor(),
-    ])
+        ])
         files=os.listdir(folderpath)
-        self._labels=[f.split(".")[0].replace("_",",") for f in files]
+        files=list(filter(lambda x:x.split("_")[1]==dataset,files))
+        if os.path.exists(outfilepath):
+            with open(outfilepath) as f:
+                existRecord=["_".join(d[:-1].split(",")[1:-1])+".png" for d in f.readlines()[1:] if d.split(",")[0]==train_percent]
+                files=list(filter(lambda x:x not in existRecord,files))
+        self._labels=[train_percent+','+f.split(".")[0].replace("_",",") for f in files]
         self._image_files=[os.path.join(folderpath,f) for f in files]
 
     def __len__(self) -> int:
@@ -92,9 +97,6 @@ def makeInversionGraph(model,dataset,seed,loss="mse",index=0,fig = None,imgsize=
     return filepath
 
 
-
-
-
 def makeInversionMetrics():
     convertColor=True
     index=1
@@ -163,7 +165,19 @@ def makeMerircGraph(model,dataset,metrics,index=0,trained=False,Classes=10):
 def makeAverageLossGraph(dataset,model,trainpercentage=0,loss="mse",imgsize=64,index=0,outGraph="Results/Graphs/AverageLoss/"):
     def addErrorBar(plt,mean,std,color,label):
         # plt.plot(msemean,label="MSE")
-        plt.errorbar(range(6), mean, yerr=std,label=label, linestyle='--', marker='p',color=color, markerfacecolor=color,ecolor=color, markersize=10)
+        plt.errorbar(range(len(mean)), mean, yerr=std,label=label, linestyle='--', marker='p',color=color, markerfacecolor=color,ecolor=color, markersize=10)
+
+    def PlotGraphFor(meanlist,stdlist,colorlist,labellist,title,outfile):
+        for m,s,c,l in zip(meanlist,stdlist,colorlist,labellist):
+            addErrorBar(plt,m,s,c,l)
+        plt.xlabel("Split Point")
+        plt.xticks(range(6),[str(i) for i in range(1,7)])
+        plt.ylabel(labellist[0])
+        plt.legend()
+        plt.title(title)
+        plt.savefig(outfile)
+        plt.close()
+        # plt.show()
 
     Path(outGraph).mkdir(exist_ok=True,parents=True)
     trainpercentage= str(trainpercentage) if trainpercentage>0 else "No"
@@ -177,7 +191,7 @@ def makeAverageLossGraph(dataset,model,trainpercentage=0,loss="mse",imgsize=64,i
         msemean,ssimmean,fsimmean,msestd,ssimstd,fsimstd,rounds=[],[],[],[],[],[],[]
         for sp,sgroup in clgroup.groupby("SplitLayer"):
             lmean=sgroup[["MSE","SSIM","FSIM"]].mean()
-            lstd = sgroup[["MSE", "SSIM", "FSIM"]].std()
+            lstd = sgroup[["MSE", "SSIM", "FSIM"]].std().fillna(0)
             msemean.append(lmean["MSE"])
             ssimmean.append(lmean["SSIM"])
             fsimmean.append(lmean["FSIM"])
@@ -185,19 +199,17 @@ def makeAverageLossGraph(dataset,model,trainpercentage=0,loss="mse",imgsize=64,i
             ssimstd.append(lstd["SSIM"])
             fsimstd.append(lstd["FSIM"])
             rounds.append(sgroup.shape[0])
-
-        addErrorBar(plt,msemean,msestd,"red","MSE")
-        addErrorBar(plt,ssimmean,ssimstd,"green","SSIM")
-        addErrorBar(plt,fsimmean,fsimstd,"blue","FSIM")
-        plt.xlabel("Split Point")
-        plt.xticks(range(6),[str(i) for i in range(1,7)])
-        plt.ylabel("Losses")
-        plt.legend()
+        meanlist,stdlist,colorlist,labellist=[msemean,ssimmean,fsimmean],[msestd,ssimstd,fsimstd], ["red","green","Blue"], ["MSE","SSIM","FSIM"]
         rounds=f"{rounds[0]} rounds" if min(rounds)==max(rounds) else f"{max(rounds)} rounds, {min(rounds)} rounds"
-        plt.title(f"Dataset {dataset}, Model {model}, Attack {loss}, {rounds},\n Class {cls}, Index {index}, {'WithoutTraining' if trainpercentage=='No' else 'WithTraining_'+trainpercentage}")
-        plt.savefig(f"{outGraph}{dataset}_{model}_{loss}_{cls}_{index}_{'WithoutTraining' if trainpercentage=='No' else 'WithTraining_'+trainpercentage}.png")
-        plt.close()
-        # plt.show()
+        # title=f"Dataset {dataset}, Model {model}, Attack {loss}, {rounds},\n Class {cls}, Index {index}, {'WithoutTraining' if trainpercentage=='No' else 'WithTraining_'+trainpercentage}"
+        # outfile=f"{outGraph}{dataset}_{model}_{loss}_{cls}_{index}_{'WithoutTraining' if trainpercentage=='No' else 'WithTraining_'+trainpercentage}.png"
+        # PlotGraphFor( meanlist,stdlist,colorlist,labellist, title, outfile)
+        for m,s,c,l in zip(meanlist,stdlist,colorlist,labellist):
+            title=f"Dataset {dataset}, Model {model}, Attack {loss},\n Class {cls}, {'0% ' if trainpercentage=='No' else  str(trainpercentage)+'% '},{rounds}"
+            outfile=f"{outGraph}{dataset}_{model}_{loss}_{l}_{cls}_{index}_{'WithoutTraining' if trainpercentage=='No' else 'WithTraining_'+trainpercentage}.png"
+            PlotGraphFor([m],[s],[c],[l], title, outfile)
+
+
 
 def MakeAllMetrices(trainpercentage=[0],losses=["mse"],EnhanceImages=False,convertColor=False,Classes=10):
     # metrics_list=("RMSE", "PNSR", "SRE","FSIM","UIQ")
@@ -256,13 +268,22 @@ def MakeLossGraphs(imgsize=64,Train="No",resultFolder="Results/Size_64_64",datal
         plt.close()
 
 
-
 def MakeLabelsCSV(folderpath,modelpath,batch_size=64,outfile="Results/Size_64_64/CSVFiles/Pred.csv"):
-    model=torch.load(modelpath)
-    columns=["Dataset","Food","LossName","split_layer","Actual class","index","Seed","Pred Class"]
-    dset=Dataset(folderpath)
+    columns=["Train","Model","Dataset","LossName","split_layer","Actual class","index","Seed","Pred Class"]
+    train_per="0" if folderpath.split("/")[-2]=="WithoutTraining" else folderpath.split("/")[-2].split("_")[1]
+    dataset=modelpath.split(".")[0].split("/")[-1].split("_")[1]
+    dset=Dataset(folderpath,dataset,outfile,train_percent=train_per)
+    if not os.path.exists(outfile):
+        with open(outfile, "w") as f:
+            f.write(",".join(columns) + "\n")
+    if len(dset)==0:
+        print("No New Records For",folderpath)
+        return
+    else:
+        print("Processing ",len(dset),"Records for ",folderpath)
     dloader = torch.utils.data.DataLoader(dset, batch_size=batch_size)
     lables,preds=[],[]
+    model=torch.load(modelpath)
     with torch.no_grad():
         for d,l in dloader:
             lables.extend(l)
@@ -270,19 +291,35 @@ def MakeLabelsCSV(folderpath,modelpath,batch_size=64,outfile="Results/Size_64_64
             preds.append(torch.argmax(pred,dim=1).cpu().numpy())
     preds=np.concatenate(preds)
     lables=[l+","+str(p)+"\n" for p,l in zip(preds,lables)]
-    clases=[l[:-1].split(",") for l in lables]
-    target,pred=[int(c[4]) for c in clases],[int(c[7]) for c in clases]
-    lables.append("Accuracy Score ,"+str(accuracy_score(target,pred)))
-    with open(outfile,"w") as f:
-        f.write(",".join(columns)+"\n")
+    with open(outfile,"a") as f:
         f.writelines(lables)
+
+def formatPredCsvFiles(predfile="Results/Size_64_64/CSVFiles/Pred.csv",outfile="PredAccuracy.csv"):
+    outfile="/".join(predfile.split("/")[:-1])+"/"+outfile
+    df=pd.read_csv(predfile)
+    dfvalues=[]
+    for (t,m,d,l),dfgroup in df.groupby(['Train', 'Model', 'Dataset', 'LossName']):
+        for sp,spgroup in dfgroup.groupby("split_layer"):
+            actual,pred=spgroup["Actual class"].values,spgroup["Pred Class"].values
+            accuracy=accuracy_score(actual,pred)
+            dfvalues.append([t,m,d,l,sp,accuracy])
+    df=pd.DataFrame(dfvalues,columns=['Train', 'Model', 'Dataset', 'LossName','split_layer','Accuracy'])
+    df=df.pivot_table("Accuracy",['Train', 'Model', 'Dataset', 'LossName'],'split_layer').reset_index()
+    df.to_csv(outfile,index=None)
+
+
+def MakePredLabelFileCsv():
+    outfile = "Results/Size_64_64/CSVFiles/Pred.csv"
+    for trfolder in ["WithoutTraining","WithTraining_30","WithTraining_60"]:
+        MakeLabelsCSV("Results/Size_64_64/"+trfolder+"/", "evaluation/Models/Size_64_64/restnet_food.pt",outfile=outfile)
+    formatPredCsvFiles(predfile=outfile)
 
 
 if __name__ == '__main__':
     # CombineLosses()
-    MakeAllMetrices(trainpercentage=[0,30],convertColor=True,losses=["mse","fsim","ssim"])
+    MakeAllMetrices(trainpercentage=[0,30,60],convertColor=True,losses=["mse","fsim","ssim"])
     # for sk in [0,5,50,100,500]:
     #     MakeLossGraphs(Train=[30],skipiter=sk,datalist=["food"])
-    # MakeLabelsCSV("Results/Size_64_64/WithoutTraining/", "evaluation/Models/Size_64_64/restnet_food.pt")
+    # MakePredLabelFileCsv()
 
 

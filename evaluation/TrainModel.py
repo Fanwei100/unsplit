@@ -143,12 +143,12 @@ def buildModel(name="restnet",pretrained=True,num_classes=10):
 
 
 def TrainModel(splitpoint=None):
-    datasize,epochs,batch_size,modelname=(64,64),80,1024,"restnet"
+    datasize,epochs,batch_size,modelname=(64,64),80,1024,"vgg11"
 
     datasetslist=["food","flower"]
     for dataset in datasetslist[:1]:
         trainset,testset,clientModel, serverModel, _=getDataAndModels(dataset,model="Vgg8Net",datasize=datasize)
-        # model = buildModel(modelname,pretrained=True)
+        clientModel = buildModel(modelname,pretrained=True)
         if splitpoint:
             TrainingSplitModel(clientModel, serverModel, splitpoint, trainset, testset, dataset, epochs=epochs,datasize=datasize, batch_size=512)
         else:
@@ -156,7 +156,7 @@ def TrainModel(splitpoint=None):
 
     plt.show()
 
-TrainModel(splitpoint=8)
+TrainModel()
 # dataset=sys.argv[1]
 # trainset,testset,model, _, _=getDataAndModels(dataset,datasize=datasize)
 # model= buildRestNet()
