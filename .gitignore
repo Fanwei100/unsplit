@@ -21,6 +21,7 @@ ServerData*
 Images/
 Models/
 evaluation/Models/
+evaluation/Graph
 eggs/
 .eggs/
 lib/

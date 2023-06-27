@@ -93,7 +93,7 @@ def copyFiles(sources,dest):
 
 # copyImagesAfterCorrectName()
 def copyToLocalFiles():
-    resultBases=["","ServerData/","ServerData2/"]
+    resultBases=["","ServerData/","ServerData2/","Server_Results 6_26/","Server_SL_Results/"]
     MergeData([b+"Results/Size_64_64/CSVFiles/Losses.csv" for b in resultBases],n_columns=8)
     MergeData([b+"Results/Size_64_64/CSVFiles/RegenrationLoss.csv" for b in resultBases],n_columns=9)
     for folder in ["WithoutTraining","WithTraining_30","WithTraining_60"]:

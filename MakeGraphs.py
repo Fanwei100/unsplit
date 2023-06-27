@@ -4,11 +4,16 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import ImageGrid
 import numpy as np
-from evaluation.EvaluationMetrics import Evaluation
 from torchvision.datasets.vision import VisionDataset
 from typing import Any, Tuple
 from torchvision import transforms
 from sklearn.metrics import accuracy_score
+# from evaluation.EvaluationMetrics import Evaluation
+
+# EvaluationMetrices={"RMSE": Evaluation.caclulateRMSE, "PNSR": Evaluation.caclulatePNSR, "SRE": Evaluation.caclulateSre,"SSIM": Evaluation.caclulateSsim,
+#         "FSIM": Evaluation.caclulateFsim, "ISIM": Evaluation.caclulateIsim, "UIQ": Evaluation.caclulateUiq}
+EvaluationMetrices={}
+
 class Dataset(VisionDataset):
     def __init__(self,folderpath,dataset,outfilepath,train_percent="0",datasize=64) -> None:
         self.transform= transforms.Compose([
@@ -34,8 +39,6 @@ class Dataset(VisionDataset):
         return image, label
 
 
-EvaluationMetrices={"RMSE": Evaluation.caclulateRMSE, "PNSR": Evaluation.caclulatePNSR, "SRE": Evaluation.caclulateSre,"SSIM": Evaluation.caclulateSsim,
-        "FSIM": Evaluation.caclulateFsim, "ISIM": Evaluation.caclulateIsim, "UIQ": Evaluation.caclulateUiq}
 
 def makeInversionGraph(model,dataset,seed,loss="mse",index=0,fig = None,imgsize=64,trainpercentage=0,EnhanceImages=False,convertColor=False,Classes=10,outdir="Results/Graphs/"):
     traintype = "WithTraining_"+str(trainpercentage)+"/" if trainpercentage>0 else "WithoutTraining/"
@@ -110,8 +113,6 @@ def makeInversionMetrics():
     plt.show()
 
 
-
-
 def makeMerircsGraph(model,dataset,metrics_list,index=0,trained=False,EnhanceImages=False,convertColor=False,Classes=10):
     traintype = "WithTraining/" if trained else "WithoutTraining/"
     baseimages = [cv2.imread(f"Images/{dataset}_{i}_{index}.png") for i in range(Classes)]
@@ -124,7 +125,7 @@ def makeMerircsGraph(model,dataset,metrics_list,index=0,trained=False,EnhanceIma
         axis[i].plot(metricsvalue)
         axis[i].set_xlabel("Split Point")
         axis[i].set_ylabel(metrics)
-        axis[i].legend(["image"+str(i) for i in range(10)],ncol=4,bbox_to_anchor=(0.95,-0.2) )
+        axis[i].legend(["image"+str(i) for i in range(10)],ncol=4,bbox_to_anchor=(0.95,-0.2))
         axis[i].yaxis.grid()
         axis[i].title.set_text(f"{metrics} for {model} with {dataset} dataset")
     imgpath=makeInversionGraph(model, dataset, index=index, fig=None, trained=trained, EnhanceImages=EnhanceImages, convertColor=convertColor,Classes=Classes)
@@ -162,73 +163,107 @@ def makeMerircGraph(model,dataset,metrics,index=0,trained=False,Classes=10):
     os.makedirs("Results/Graphs/MetricsGraph",exist_ok=True)
     figure.savefig(f"Results/Graphs/MetricsGraph/{dataset}_{model}_{index}_{traintype[:-1]}_{metrics}.png")
 
-def makeAverageLossGraph(dataset,model,trainpercentage=0,loss="mse",imgsize=64,index=0,outGraph="Results/Graphs/AverageLoss/"):
-    def addErrorBar(plt,mean,std,color,label):
-        # plt.plot(msemean,label="MSE")
+def addErrorBar(plt,mean,std,color,label,plotype="Error"):
+    if plotype=="Error":
         plt.errorbar(range(len(mean)), mean, yerr=std,label=label, linestyle='--', marker='p',color=color, markerfacecolor=color,ecolor=color, markersize=10)
+    plt.plot(mean,label=label,color=color)
 
-    def PlotGraphFor(meanlist,stdlist,colorlist,labellist,title,outfile):
-        for m,s,c,l in zip(meanlist,stdlist,colorlist,labellist):
-            addErrorBar(plt,m,s,c,l)
-        plt.xlabel("Split Point")
-        plt.xticks(range(6),[str(i) for i in range(1,7)])
-        plt.ylabel(labellist[0])
-        plt.legend()
-        plt.title(title)
-        plt.savefig(outfile)
-        plt.close()
-        # plt.show()
+def PlotGraphFor(meanlist,stdlist,colorlist,labellist,ylabel,title,outfile,plotype="Error"):
+    for m,s,c,l in zip(meanlist,stdlist,colorlist,labellist):
+        addErrorBar(plt,m,s,c,l,plotype=plotype)
+    plt.xlabel("Split Point")
+    plt.xticks(range(6),[str(i) for i in range(1,7)])
+    plt.ylabel(ylabel)
+    plt.legend()
+    plt.title(title)
+    plt.savefig(outfile)
+    plt.close()
+    # plt.show()
+
+def makeAverageLossGraph(trainpercentage,dataset,model,loss="mse",imgsize=64,index=0,outGraph="Results/Graphs/AverageLoss/"):
 
     Path(outGraph).mkdir(exist_ok=True,parents=True)
-    trainpercentage= str(trainpercentage) if trainpercentage>0 else "No"
     losses=pd.read_csv(f"Results/Size_{imgsize}_{imgsize}/CSVFiles/Losses.csv")
+    losses=losses.replace("No",0)
+    losses["Train"]=losses["Train"].astype(int)
     losses=losses[losses["Dataset"]==dataset]
     losses=losses[losses["Model"]==model]
-    losses=losses[losses["Train"]==trainpercentage]
+    # losses=losses[losses["Train"]==trainpercentage]
     losses=losses[losses["Index"]==index]
     losses=losses[losses["LossName"]==loss]
     for cls,clgroup in losses.groupby("Class"):
-        msemean,ssimmean,fsimmean,msestd,ssimstd,fsimstd,rounds=[],[],[],[],[],[],[]
-        for sp,sgroup in clgroup.groupby("SplitLayer"):
-            lmean=sgroup[["MSE","SSIM","FSIM"]].mean()
-            lstd = sgroup[["MSE", "SSIM", "FSIM"]].std().fillna(0)
-            msemean.append(lmean["MSE"])
-            ssimmean.append(lmean["SSIM"])
-            fsimmean.append(lmean["FSIM"])
-            msestd.append(lstd["MSE"])
-            ssimstd.append(lstd["SSIM"])
-            fsimstd.append(lstd["FSIM"])
-            rounds.append(sgroup.shape[0])
+        msemean,ssimmean,fsimmean,msestd,ssimstd,fsimstd,rounds= {}, {}, {}, {}, {}, {}, {}
+        for tp,tgroup in clgroup.groupby("Train"):
+            for d in [msemean,ssimmean,fsimmean,msestd,ssimstd,fsimstd,rounds]: d[tp]=[]
+            for sp,sgroup in tgroup.groupby("SplitLayer"):
+                lmean=sgroup[["MSE","SSIM","FSIM"]].mean()
+                lstd = sgroup[["MSE", "SSIM", "FSIM"]].std().fillna(0)
+                msemean[tp].append(lmean["MSE"])
+                ssimmean[tp].append(lmean["SSIM"])
+                fsimmean[tp].append(lmean["FSIM"])
+                msestd[tp].append(lstd["MSE"])
+                ssimstd[tp].append(lstd["SSIM"])
+                fsimstd[tp].append(lstd["FSIM"])
+                rounds[tp].append(sgroup.shape[0])
         meanlist,stdlist,colorlist,labellist=[msemean,ssimmean,fsimmean],[msestd,ssimstd,fsimstd], ["red","green","Blue"], ["MSE","SSIM","FSIM"]
-        rounds=f"{rounds[0]} rounds" if min(rounds)==max(rounds) else f"{max(rounds)} rounds, {min(rounds)} rounds"
-        # title=f"Dataset {dataset}, Model {model}, Attack {loss}, {rounds},\n Class {cls}, Index {index}, {'WithoutTraining' if trainpercentage=='No' else 'WithTraining_'+trainpercentage}"
-        # outfile=f"{outGraph}{dataset}_{model}_{loss}_{cls}_{index}_{'WithoutTraining' if trainpercentage=='No' else 'WithTraining_'+trainpercentage}.png"
-        # PlotGraphFor( meanlist,stdlist,colorlist,labellist, title, outfile)
-        for m,s,c,l in zip(meanlist,stdlist,colorlist,labellist):
-            title=f"Dataset {dataset}, Model {model}, Attack {loss},\n Class {cls}, {'0% ' if trainpercentage=='No' else  str(trainpercentage)+'% '},{rounds}"
-            outfile=f"{outGraph}{dataset}_{model}_{loss}_{l}_{cls}_{index}_{'WithoutTraining' if trainpercentage=='No' else 'WithTraining_'+trainpercentage}.png"
-            PlotGraphFor([m],[s],[c],[l], title, outfile)
+        for mn,sd,ylabel in zip(meanlist,stdlist,labellist):
+            c=[colorlist[i] for i in range(len(mn))]
+            l=[f"{tp}% {max(rounds[tp])} rounds {min(rounds[tp])} rounds" for tp in trainpercentage if tp in rounds]
+            title=f"Dataset {dataset}, Model {model}, Attack {loss},\n Class {cls}"
+            outfile=f"{outGraph}{dataset}_{model}_{loss}_{ylabel}_{cls}.png"
+            PlotGraphFor(list(mn.values()),list(sd.values()),c,l,ylabel, title, outfile)
+
+def PlotAgrrigationResutls(clgroup,loss,title, outfile,aggrigationtype="max"):
+    Path("/".join(outfile.split("/")[:-1])).mkdir(exist_ok=True,parents=True)
+    mselist, ssimlist, fsimlist = [], [], []
+    for sp, sgroup in clgroup.groupby("SplitLayer"):
+        if aggrigationtype=="max":
+            mse, ssim, fsim = sgroup[sgroup["Combineloss"] == sgroup["Combineloss"].max()][["MSE", "SSIM", "FSIM"]].values[0]
+        if aggrigationtype == "avg":
+            mse, ssim, fsim=sgroup.mean()[["MSE", "SSIM", "FSIM"]].values
+        mselist.append(mse)
+        ssimlist.append(ssim)
+        fsimlist.append(fsim)
+    PlotGraphFor([mselist, ssimlist, fsimlist], [None, None, None], ["red", "green", "Blue"], ["MSE", "SSIM", "FSIM"],loss.upper(), title, outfile,plotype="Line")
 
 
+def makeBestResultLossGraph(trainpercentage,dataset,model,loss="mse",imgsize=64,outGraph="Results/Graphs/BestResults/"):
+    Path(outGraph).mkdir(exist_ok=True,parents=True)
+    losses=pd.read_csv(f"Results/Size_{imgsize}_{imgsize}/CSVFiles/Losses.csv")
+    losses=losses.replace("No",0)
+    losses["Train"]=losses["Train"].astype(int)
+    losses=losses[losses["Dataset"]==dataset]
+    losses=losses[losses["Model"]==model]
+    losses=losses[losses["LossName"]==loss]
+    losses["FSIM"]=losses["FSIM"].fillna(.5)
+    del losses["Dataset"],losses["Model"],losses["MAE"],losses["LossName"],losses["SEED"],losses["PredIndex"]
+    losses["Combineloss"]=(1-losses["MSE"])+losses["SSIM"]+losses["FSIM"]
+    for tp,tplosses in losses.groupby("Train"):
+        if tp not in trainpercentage: continue
+        for cls,clgroup in tplosses.groupby("Class"):
+            title = f"Dataset {dataset}, Model {model}, Attack {loss},\n Class {cls}, {tp}%"
+            outfile = f"{outGraph}{dataset}_{model}_{loss}_{cls}_{tp}.png"
+            PlotAgrrigationResutls(clgroup,loss,title, outfile,aggrigationtype="max")
+        title = f"Dataset {dataset}, Model {model}, Attack {loss}, {tp}%"
+        outfile = f"{'/'.join(outGraph.split('/')[:-2])}/AverageResults/{dataset}_{model}_{loss}_{tp}.png"
+        PlotAgrrigationResutls(tplosses, loss, title, outfile, aggrigationtype="avg")
 
-def MakeAllMetrices(trainpercentage=[0],losses=["mse"],EnhanceImages=False,convertColor=False,Classes=10):
-    # metrics_list=("RMSE", "PNSR", "SRE","FSIM","UIQ")
-    # model, dataset, index,i = "Vgg8Net", "food", 0,3
-    # makeMerircGraph(model, dataset, metrics=metrics_list[i], index=index, trained=trained, Classes=Classes)
-    # makeInversionGraph(model, dataset, seeds[-1], loss=loss, index=index, trained=trained, EnhanceImages=EnhanceImages,convertColor=convertColor, Classes=Classes, outdir="Results/Graphs/")
+
+def MakeAllMetrices(trainpercentage,losses=["mse"],EnhanceImages=False,convertColor=False,Classes=10):
+    metrics_list=("RMSE", "PNSR", "SRE","FSIM","UIQ")
     seeds=np.unique(pd.read_csv("Results/Size_64_64/CSVFiles/Losses.csv")[["SEED"]].values[:,0])
 
     for index in range(1):
         for model in ["Vgg8Net"]:
             for dataset in ["food"]:
-                for tp in trainpercentage:
-                    for loss in losses:
-                        makeAverageLossGraph(dataset, model, tp,loss)
-                    #     for seed in seeds:
-                    #         makeInversionGraph(model, dataset, seed,loss=loss, index=index, trainpercentage=tp, EnhanceImages=EnhanceImages,convertColor=convertColor, Classes=Classes, outdir="Results/Graphs/")
-                            # for i in range(len(metrics_list)):
-                            #     makeMerircGraph(model, dataset, metrics=metrics_list[i], index=index, trained=trained,Classes=Classes)
-                            # makeInversionGraph(model, dataset,seed, index=index, trained=trained, EnhanceImages=EnhanceImages, convertColor=convertColor,  Classes=10, outdir="Results/Graphs/MetricsGraph/")
+                for loss in losses:
+                    # makeAverageLossGraph(trainpercentage,dataset, model,loss)
+                    makeBestResultLossGraph(trainpercentage,dataset, model,loss)
+                    # for seed in seeds:
+                    #     makeInversionGraph(model, dataset, seed,loss=loss, index=index, trainpercentage=tp, EnhanceImages=EnhanceImages,convertColor=convertColor, Classes=Classes, outdir="Results/Graphs/")
+                    #     for i in range(len(metrics_list)):
+                    #         makeMerircGraph(model, dataset, metrics=metrics_list[i], index=index, trained=trained,Classes=Classes)
+                    #     makeInversionGraph(model, dataset,seed, index=index, trained=trained, EnhanceImages=EnhanceImages, convertColor=convertColor,  Classes=10, outdir="Results/Graphs/MetricsGraph/")
     # plt.show()
 
 def MakeLossGraphs(imgsize=64,Train="No",resultFolder="Results/Size_64_64",datalist=None,skipiter=0,n_key_columns=9,updateGraphs=False):
@@ -317,7 +352,7 @@ def MakePredLabelFileCsv():
 
 if __name__ == '__main__':
     # CombineLosses()
-    MakeAllMetrices(trainpercentage=[0,30,60],convertColor=True,losses=["mse","fsim","ssim"])
+    MakeAllMetrices([0,30,60],convertColor=True,losses=["mse","fsim","ssim"])
     # for sk in [0,5,50,100,500]:
     #     MakeLossGraphs(Train=[30],skipiter=sk,datalist=["food"])
     # MakePredLabelFileCsv()
