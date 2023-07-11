@@ -117,9 +117,9 @@ class Evaluation:
         claspred=torch.argmax(self.getClass(preds),axis=1).numpy()[0]
         # preds,target=(np.rollaxis(preds.numpy(),1,4)*255).astype(int)[0],(np.rollaxis(target.numpy(),1,4)*255).astype(int)[0]
         preds,target=(np.rollaxis(preds.cpu().numpy(),1,4)*255)[0],(np.rollaxis(target.cpu().numpy(),1,4)*255)[0]
-        fsim=self.caclulateFsim(preds,target)
+        # fsim=self.caclulateFsim(preds,target)
         ssim=self.caclulateSsim(preds,target)
-        return claspred,fsim,ssim
+        return claspred,ssim
 
 
 def calculateTheScores(datasets,classes,indexes,normalize=False,folders=["WithoutTraining"],realimages="Images/",genetaredimages="Results/",outfilepath="Graphs/Scores"):

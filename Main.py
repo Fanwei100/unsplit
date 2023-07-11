@@ -16,7 +16,7 @@ def makeBaseLossFile(lossFile="Losses.csv",rloss="RegenrationLoss.csv"):
      if not os.path.exists(lossFile):
          Path(lossFile.replace("Losses.csv","")).mkdir(parents=True, exist_ok=True)
          with open(lossFile, "w") as f:
-             f.write(f'Train,Model,Dataset,LossName,SplitLayer,Class,Index,SEED,MSE,MAE,SSIM,FSIM,PredIndex\n')
+             f.write(f'Train,Model,Dataset,LossName,SplitLayer,Class,Index,SEED,MSE,MAE,SSIM,PredIndex\n')
      if not os.path.exists(rloss):
          Path(rloss.replace("RegenrationLoss.csv","")).mkdir(parents=True, exist_ok=True)
          with open(rloss, "w") as f:
@@ -70,12 +70,12 @@ def Training(server,client,split_layer,trainset,testset,dataset,modelname,modelp
 def saveResults(instanceinfo,lossname,loss,result,target,resultFolder,traintype,dataset,modelname,split_layer,clas,idx,seed,inputloss,clonemodellos,device,evalobject):
     # create results directory if doesn't exist.
     Path(resultFolder).mkdir(parents=True, exist_ok=True)
-    pred, FSIM, SSIM = evalobject.calculateScore(result, target)
+    pred,  SSIM = evalobject.calculateScore(result, target)
     # save_image(result, f'Results/{traintype}/{modelname}_{dataset}_{split_layer}_{clas}_CCH_{idx}.png')
-    print(f'{instanceinfo},{loss},{torch.nn.L1Loss()(result, target.to(device))},{SSIM},{FSIM},{pred}\n')
+    print(f'{instanceinfo},{loss},{torch.nn.L1Loss()(result, target.to(device))},{SSIM},{pred}\n')
     save_image(result, f'{resultFolder}{traintype}/{modelname}_{dataset}_{lossname}_{split_layer}_{clas}_{idx}_{seed}.png')
     with open(f"{resultFolder}CSVFiles/Losses.csv", "a") as f:
-        f.write(f'{instanceinfo},{loss},{torch.nn.L1Loss()(result, target.to(device))},{SSIM},{FSIM},{pred}\n')
+        f.write(f'{instanceinfo},{loss},{torch.nn.L1Loss()(result, target.to(device))},{SSIM},{pred}\n')
     with open(f"{resultFolder}CSVFiles/RegenrationLoss.csv", "a") as f:
         f.write(f'{instanceinfo},INPUT,{",".join([str(inp) for inp in inputloss])}\n')
         f.write(f'{instanceinfo},Model,{",".join([str(cln) for cln in clonemodellos])}\n')
@@ -162,11 +162,12 @@ def getArguments():
     parser.add_argument('-t', '--train',action="store_true",help="Whether To Train")
     parser.add_argument('-im', '--imagesize',default=64,help="Imagesize to Train",choices=[32,64,128])
     parser.add_argument('-tp', '--trainPercentage',default=100,type=int,help="What Percentage Train if train is selected")
-    parser.add_argument('-ls', '--loss',default="fsim",choices=["mse","ssim","fsim"],help="Choose loss to Use")
+    parser.add_argument('-ls', '--loss',default="mse",choices=["mse","ssim"],help="Choose loss to Use")
     parser.add_argument('-rs', '--results',default="Results",help="Direcotry to save Results")
     parser.add_argument('-tri', '--trainiteration',default=34,type=int,help="Number of iterations to Train")
     parser.add_argument('-imi', '--inversionmainteration',default=1000,type=int,help="Number of Inversion Main iterations")
     args = parser.parse_args()
+    # seed used 84554 12564 35468 74852 40864 42951 45769 47821 58964 98723
     print(args)
     device=torch.device("cuda" if args.cuda else "cpu")
     if args.results=="ResultsDel": print("** Result will be saved at ResultsDel ***")
@@ -195,4 +196,3 @@ if __name__ == '__main__':
 
     RunCode()
 
-# seeds 84554 12564 35468 74852 40864 42951 45769 47821 58964 98723
