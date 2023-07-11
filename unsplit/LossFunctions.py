@@ -26,6 +26,9 @@ def ssim_loss(img1, img2, window_size=11, size_average=True):
 def fsim_loss(img1, img2, alpha=0.4, beta=0.4, gamma=0.2):
     # Compute FSIM
     # (2 * μx * μy + α) * (2 * σxy + β) / (μx ^ 2 + μy ^ 2 + α) * (σx ^ 2 + σy ^ 2 + β)
+    # ux is mean of img1
+    # uy is mean of imag2
+    # axy is mean of img*imag2
 
     mu1 = F.avg_pool2d(img1, 3, stride=1, padding=1)
     mu2 = F.avg_pool2d(img2, 3, stride=1, padding=1)

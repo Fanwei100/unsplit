@@ -21,7 +21,7 @@ def eval_step(engine, batch):
     return batch
 
 class Evaluation:
-    def __init__(self,dataset=None,image_size=64,modelname="restnet",ep="",useCude=False):
+    def __init__(self,dataset=None,image_size=64,modelname="efficientnet_v2_s",ep="_149_1.000_0.747",useCude=False):
         if dataset is not None:
             self.model = torch.load(f"evaluation/Models/Size_{image_size}_{image_size}/{modelname}_{dataset}{ep}.pt")
             # self.model.classifier = self.model.classifier[:1]

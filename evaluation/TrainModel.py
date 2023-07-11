@@ -4,7 +4,7 @@ from matplotlib import pyplot as plt
 import torch,numpy as np
 from torch import nn
 from tqdm import tqdm
-from torchvision import  models
+from torchvision import  models,transforms
 sys.path.append("../")
 from DataSet import getDataAndModels
 
@@ -72,7 +72,7 @@ def Training(model,trainset,testset,dataset,opt=None,stepoch=0,epochs = 100,data
             labels, preds = torch.hstack(labelslist).cpu().numpy(), torch.hstack(predlist).cpu().numpy()
             testacclist.append(np.sum(labels == preds) / labels.shape[0])
         print(f"Epoch {epoch} TrainAcc {trainaccuracylist[-1]} Testacc {testacclist[-1]}")
-        if (len(testacclist)<50 and epoch%10==9) or (len(testacclist)>50 and testacclist[0]==max(testacclist)):
+        if (len(testacclist)<40 and epoch%10==9) or (len(testacclist)>40 and testacclist[-1]==max(testacclist)):
             saveResults(model, trainaccuracylist, testacclist, datasize, modelname, dataset, epoch)
     saveResults(model, trainaccuracylist, testacclist, datasize, modelname, dataset, epoch)
     print(trainaccuracylist)
@@ -201,10 +201,11 @@ def makePlot(model,datasize,modelname,outfolder="Graph/"):
     make_dot(model(torch.randn((1,3,*datasize))).mean(), params=dict(model.named_parameters())).render(outfolder+modelname, format="png")
 
 def TrainLargeModel():
-    dataset,datasize,epochs,batch_size,modelname,opt="food",(256,256),80,64,"restnet18",None
+    dataset,datasize,epochs,batch_size,modelname,opt="food",(256,256),150,25,"efficientnet_v2_s",None
     print("Training with Size",datasize)
     trainset, testset, clientModel, serverModel, _ = getDataAndModels(dataset, model="Vgg8Net", datasize=datasize)
     clientModel, opt = buildModel(modelname, pretrained=True)
+    # makePlot(clientModel, datasize, modelname, outfolder="Graph/")
     Training(clientModel, trainset, testset, dataset, opt=opt, epochs=epochs, datasize=datasize, batch_size=batch_size)
 
 
@@ -234,11 +235,32 @@ def TrainModelOnDiffSize():
         Training(clientModel,trainset,testset,dataset,opt=opt,epochs =epochs,datasize=datasize,batch_size=batch_size)
 
 
-TrainModelOnDiffSize()
-# TrainLargeModel()
-# TrainModel()
-# dataset=sys.argv[1]
-# trainset,testset,model, _, _=getDataAndModels(dataset,datasize=datasize)
-# model= buildRestNet()
-# Training(model,trainset,testset,dataset,epochs = int(sys.argv[2]),datasize=datasize,batch_size=32)
+def Prediction():
+    dataset, datasize, epochs, batch_size, modelname, opt = "food", (256,256), 150, 32, "efficientnet_v2_s", None
+    trainset, testset, clientModel, serverModel, _ = getDataAndModels(dataset, model="Vgg8Net", datasize=datasize)
+    model=torch.load("Models/Size_256_256/efficientnet_v2_s_food_134_1.000_0.894.pt")
+    device=torch.device("cuda")
+    lowtransform=transforms.Compose([transforms.Resize((64,64)),transforms.ToTensor()])
+    hightransform=transforms.Compose([transforms.Resize((256,256)),transforms.ToTensor()])
+    lowhightransform=transforms.Compose([transforms.Resize((256,256)),transforms.Resize((64,64)),transforms.Resize((256,256)),transforms.ToTensor()])
+    results=[]
+    with torch.no_grad():
+        for tname,transform in [("64",lowtransform),("256",hightransform),("256->64->256",lowhightransform)]:
+            trainset.transform,testset.transform = transform,transform
+            trainloader = torch.utils.data.DataLoader(trainset, shuffle=True, batch_size=batch_size)
+            testloader = torch.utils.data.DataLoader(testset, shuffle=True, batch_size=batch_size)
+            for name,loader in [("Train",trainloader),("Test",testloader)]:
+                ytrue, ypred = [], []
+                for data,label in tqdm(loader):
+                    ypred.append(model(data.to(device)).cpu())
+                    ytrue.append(label)
+                ytrue,ypred=torch.cat(ytrue).numpy(),torch.argmax(torch.cat(ypred),dim=1).numpy()
+                results.append(name+ "have accuracy for "+tname+" "+str(data.shape)+" "+str(np.sum(ytrue == ypred) / ytrue.shape[0]))
+    for r in results:
+        print(r)
 
+
+# TrainModelOnDiffSize()
+# TrainLargeModel()
+Prediction()
+# TrainModel()

@@ -151,7 +151,7 @@ def getArguments():
                         prog='Inversion Attack',
                         description='It Do the Inverse Untack on midele  output')
 
-    parser.add_argument('-d', '--dataset',default=["flower","food"],nargs="+",choices=datasetslist,help="Dataset to use")
+    parser.add_argument('-d', '--dataset',default=["food"],nargs="+",choices=datasetslist,help="Dataset to use")
     parser.add_argument('-m', '--model',default="Vgg8Net",choices=modelList,help="Model to use")
     parser.add_argument('-c', '--cuda',action="store_true",help="Whether to use cuda?")
     parser.add_argument('-arw', '--allowrewrite',action="store_true",help="Whether You want to allow rewrite the exsiting results if exist?")

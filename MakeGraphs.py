@@ -47,14 +47,12 @@ def makeInversionGraph(model,dataset,seed,loss="mse",index=0,fig = None,imgsize=
     resbasepath=f"Results/Size_{imgsize}_{imgsize}/{traintype}{model}_{dataset}_{loss}"
     inversimages = [[cv2.imread(f"{resbasepath}_{sp}_{cl}_{index}_{seed}.png") for cl in range(Classes) if os.path.exists(f"{resbasepath}_{sp}_{cl}_{index}_{seed}.png")] for sp in range(1,7)]
 
-
     if len(inversimages[0])==0: return
     if convertColor:
         baseimages = [cv2.cvtColor(img, cv2.COLOR_BGR2RGB) for img in baseimages]
         inversimages=[[cv2.cvtColor(img, cv2.COLOR_BGR2RGB) for img in invimg] for invimg in inversimages]
     if EnhanceImages:
         inversimages=[[(img.astype(float)/(np.max(img)+1e-8)*255).astype(int) for img in invimg] for invimg in inversimages]
-
 
     if fig is None: fig=plt.figure(figsize=(20., 15.))
     grid = ImageGrid(fig,nrows_ncols=(len(inversimages)+1, Classes),  # creates 2x2 grid of axes
@@ -166,7 +164,8 @@ def makeMerircGraph(model,dataset,metrics,index=0,trained=False,Classes=10):
 def addErrorBar(plt,mean,std,color,label,plotype="Error"):
     if plotype=="Error":
         plt.errorbar(range(len(mean)), mean, yerr=std,label=label, linestyle='--', marker='p',color=color, markerfacecolor=color,ecolor=color, markersize=10)
-    plt.plot(mean,label=label,color=color)
+    elif plotype=="Line":
+        plt.plot(mean,label=label,color=color)
 
 def PlotGraphFor(meanlist,stdlist,colorlist,labellist,ylabel,title,outfile,plotype="Error"):
     for m,s,c,l in zip(meanlist,stdlist,colorlist,labellist):
@@ -180,7 +179,31 @@ def PlotGraphFor(meanlist,stdlist,colorlist,labellist,ylabel,title,outfile,ploty
     plt.close()
     # plt.show()
 
-def makeAverageLossGraph(trainpercentage,dataset,model,loss="mse",imgsize=64,index=0,outGraph="Results/Graphs/AverageLoss/"):
+def makeAverageLossGraph(trainpercentage,dataset,model,loss="mse",imgsize=64,index=0,maxruns=10,outGraph="Results/Graphs/AverageClassLoss/"):
+    def ProcessAndMakeGraph(clgroup,title,outfile):
+        msemean,ssimmean,fsimmean,msestd,ssimstd,fsimstd,rounds= {}, {}, {}, {}, {}, {}, {}
+        for tp,tgroup in clgroup.groupby("Train"):
+            for d in [msemean,ssimmean,fsimmean,msestd,ssimstd,fsimstd,rounds]: d[tp]=[]
+            mincount=np.unique(tgroup["SplitLayer"],return_counts=True)[1].min()
+            for sp,sgroup in tgroup.groupby("SplitLayer"):
+                sgroup = pd.concat([clgrouo[:maxruns] for cl, clgrouo in sgroup.groupby("Class")])
+                sgroup=sgroup[:mincount]
+                lmean=sgroup[["MSE","SSIM","FSIM"]].mean()
+                lstd = sgroup[["MSE", "SSIM", "FSIM"]].std().fillna(0)
+                msemean[tp].append(lmean["MSE"])
+                ssimmean[tp].append(lmean["SSIM"])
+                fsimmean[tp].append(lmean["FSIM"])
+                msestd[tp].append(lstd["MSE"])
+                ssimstd[tp].append(lstd["SSIM"])
+                fsimstd[tp].append(lstd["FSIM"])
+            rounds[tp]=mincount
+        meanlist,stdlist,colorlist,labellist=[msemean,ssimmean,fsimmean],[msestd,ssimstd,fsimstd], ["red","green","Blue"], ["MSE","SSIM","FSIM"]
+        for mn,sd,ylabel in zip(meanlist,stdlist,labellist):
+            c=[colorlist[i] for i in range(len(mn))]
+            # l=[f"{tp}% {rounds[tp]} rounds" for tp in trainpercentage if tp in rounds]
+            l=[str(tp)+"%" for tp in trainpercentage]
+            PlotGraphFor(list(mn.values()),list(sd.values()),c,l,ylabel+" Metrics for recovered Images", title, f"{outfile}_{ylabel}.png")
+
 
     Path(outGraph).mkdir(exist_ok=True,parents=True)
     losses=pd.read_csv(f"Results/Size_{imgsize}_{imgsize}/CSVFiles/Losses.csv")
@@ -192,61 +215,65 @@ def makeAverageLossGraph(trainpercentage,dataset,model,loss="mse",imgsize=64,ind
     losses=losses[losses["Index"]==index]
     losses=losses[losses["LossName"]==loss]
     for cls,clgroup in losses.groupby("Class"):
-        msemean,ssimmean,fsimmean,msestd,ssimstd,fsimstd,rounds= {}, {}, {}, {}, {}, {}, {}
-        for tp,tgroup in clgroup.groupby("Train"):
-            for d in [msemean,ssimmean,fsimmean,msestd,ssimstd,fsimstd,rounds]: d[tp]=[]
-            for sp,sgroup in tgroup.groupby("SplitLayer"):
-                lmean=sgroup[["MSE","SSIM","FSIM"]].mean()
-                lstd = sgroup[["MSE", "SSIM", "FSIM"]].std().fillna(0)
-                msemean[tp].append(lmean["MSE"])
-                ssimmean[tp].append(lmean["SSIM"])
-                fsimmean[tp].append(lmean["FSIM"])
-                msestd[tp].append(lstd["MSE"])
-                ssimstd[tp].append(lstd["SSIM"])
-                fsimstd[tp].append(lstd["FSIM"])
-                rounds[tp].append(sgroup.shape[0])
-        meanlist,stdlist,colorlist,labellist=[msemean,ssimmean,fsimmean],[msestd,ssimstd,fsimstd], ["red","green","Blue"], ["MSE","SSIM","FSIM"]
-        for mn,sd,ylabel in zip(meanlist,stdlist,labellist):
-            c=[colorlist[i] for i in range(len(mn))]
-            l=[f"{tp}% {max(rounds[tp])} rounds {min(rounds[tp])} rounds" for tp in trainpercentage if tp in rounds]
-            title=f"Dataset {dataset}, Model {model}, Attack {loss},\n Class {cls}"
-            outfile=f"{outGraph}{dataset}_{model}_{loss}_{ylabel}_{cls}.png"
-            PlotGraphFor(list(mn.values()),list(sd.values()),c,l,ylabel, title, outfile)
+        title = f"Dataset {dataset}, Model {model}, Attack {loss},\n Class {cls}"
+        outfile = f"{outGraph}{dataset}_{model}_{loss}_{cls}"
+        ProcessAndMakeGraph(clgroup, title, outfile)
+    Path(outGraph.replace('Class','')).mkdir(exist_ok=True,parents=True)
+    title = f"Average results for {loss.upper()} attack at three training stages"
+    outfile = f"{outGraph.replace('Class','')}{dataset}_{model}_{loss}"
+    ProcessAndMakeGraph(losses, title, outfile)
 
-def PlotAgrrigationResutls(clgroup,loss,title, outfile,aggrigationtype="max"):
+
+def PlotAgrrigationResutls(df,metrics,title, outfile,aggrigationtype="max",maxruns=10):
     Path("/".join(outfile.split("/")[:-1])).mkdir(exist_ok=True,parents=True)
-    mselist, ssimlist, fsimlist = [], [], []
-    for sp, sgroup in clgroup.groupby("SplitLayer"):
-        if aggrigationtype=="max":
-            mse, ssim, fsim = sgroup[sgroup["Combineloss"] == sgroup["Combineloss"].max()][["MSE", "SSIM", "FSIM"]].values[0]
-        if aggrigationtype == "avg":
-            mse, ssim, fsim=sgroup.mean()[["MSE", "SSIM", "FSIM"]].values
-        mselist.append(mse)
-        ssimlist.append(ssim)
-        fsimlist.append(fsim)
-    PlotGraphFor([mselist, ssimlist, fsimlist], [None, None, None], ["red", "green", "Blue"], ["MSE", "SSIM", "FSIM"],loss.upper(), title, outfile,plotype="Line")
+    df=df[["Class","LossName","SplitLayer","Combineloss",metrics]]
+    maxcount={l:c//6 for l,c in zip(*np.unique(df["LossName"],return_counts=True))}
+    metricsdict,metricsstd = {m:[] for m in maxcount},{m:[] for m in maxcount}
+    for sp, sgroup in df.groupby("SplitLayer"):
+        for lg,lgroup in sgroup.groupby("LossName"):
+            # lgroup=lgroup[:maxcount[lg]]
+            if aggrigationtype=="max":
+                lgroup=pd.concat([clgrouo[:maxruns] for cl, clgrouo in lgroup.groupby("Class")])
+                metricsdict[lg].append(lgroup[metrics].max())
+            elif aggrigationtype == "avg":
+                lgroup=pd.concat([clgrouo[:maxruns] for cl, clgrouo in lgroup.groupby("Class")])
+                metricsdict[lg].append(lgroup[metrics].mean())
+            elif aggrigationtype=="avgmax":
+                classmaxlist=[]
+                for cl,clgrouo in lgroup.groupby("Class"):
+                    # if clgrouo.shape[0]<10:
+                    #     with open("LessRuns.txt","a") as f:
+                    #         f.write(f"{title.split(' ')[-1]} Train percent,  {lg} loss, {metrics} metrics,  {sp} splitpoint, {cl} class have only {clgrouo.shape[0]} runs\n")
+                    classmaxlist.append(clgrouo[metrics][:maxruns].max())
+                metricsdict[lg].append(np.mean(classmaxlist))
+                metricsstd[lg].append(np.std(classmaxlist))
+    metrics += " Metrics For Recovery Image"
+    if aggrigationtype=="avgmax":PlotGraphFor(metricsdict.values(), metricsstd.values(), ["red", "green", "Blue"], [m.upper()+" Loss" for m in metricsdict],metrics, title, outfile,plotype="Error")
+    else:PlotGraphFor(metricsdict.values(), [None, None, None], ["red", "green", "Blue"], [m.upper()+" Loss" for m in metricsdict],metrics, title, outfile,plotype="Line")
 
 
-def makeBestResultLossGraph(trainpercentage,dataset,model,loss="mse",imgsize=64,outGraph="Results/Graphs/BestResults/"):
+def makeBestResultLossGraph(trainpercentage,dataset,model,metrics="mse",imgsize=64,outGraph="Results/Graphs/BestResults/"):
     Path(outGraph).mkdir(exist_ok=True,parents=True)
     losses=pd.read_csv(f"Results/Size_{imgsize}_{imgsize}/CSVFiles/Losses.csv")
     losses=losses.replace("No",0)
     losses["Train"]=losses["Train"].astype(int)
     losses=losses[losses["Dataset"]==dataset]
     losses=losses[losses["Model"]==model]
-    losses=losses[losses["LossName"]==loss]
     losses["FSIM"]=losses["FSIM"].fillna(.5)
-    del losses["Dataset"],losses["Model"],losses["MAE"],losses["LossName"],losses["SEED"],losses["PredIndex"]
+    del losses["Dataset"],losses["Model"],losses["MAE"],losses["SEED"],losses["PredIndex"]
     losses["Combineloss"]=(1-losses["MSE"])+losses["SSIM"]+losses["FSIM"]
     for tp,tplosses in losses.groupby("Train"):
         if tp not in trainpercentage: continue
         for cls,clgroup in tplosses.groupby("Class"):
-            title = f"Dataset {dataset}, Model {model}, Attack {loss},\n Class {cls}, {tp}%"
-            outfile = f"{outGraph}{dataset}_{model}_{loss}_{cls}_{tp}.png"
-            PlotAgrrigationResutls(clgroup,loss,title, outfile,aggrigationtype="max")
-        title = f"Dataset {dataset}, Model {model}, Attack {loss}, {tp}%"
-        outfile = f"{'/'.join(outGraph.split('/')[:-2])}/AverageResults/{dataset}_{model}_{loss}_{tp}.png"
-        PlotAgrrigationResutls(tplosses, loss, title, outfile, aggrigationtype="avg")
+            title = f"Dataset {dataset}, Model {model}, Class {cls}, {tp}%"
+            outfile = f"{outGraph}{dataset}_{model}_{metrics}_{cls}_{tp}.png"
+            PlotAgrrigationResutls(clgroup,metrics.upper(),title, outfile,aggrigationtype="max")
+        title = f"Dataset {dataset}, Model {model}, {tp}%"
+        outfile = f"{'/'.join(outGraph.split('/')[:-2])}/AverageResults/{dataset}_{model}_{metrics.upper()}_{tp}.png"
+        PlotAgrrigationResutls(tplosses, metrics.upper(), title, outfile, aggrigationtype="avg")
+        title = f"Average of best results for training stage {tp}%"
+        outfile = f"{'/'.join(outGraph.split('/')[:-2])}/AverageBestResults/{dataset}_{model}_{metrics.upper()}_{tp}.png"
+        PlotAgrrigationResutls(tplosses, metrics.upper(), title, outfile, aggrigationtype="avgmax")
 
 
 def MakeAllMetrices(trainpercentage,losses=["mse"],EnhanceImages=False,convertColor=False,Classes=10):
@@ -257,7 +284,7 @@ def MakeAllMetrices(trainpercentage,losses=["mse"],EnhanceImages=False,convertCo
         for model in ["Vgg8Net"]:
             for dataset in ["food"]:
                 for loss in losses:
-                    # makeAverageLossGraph(trainpercentage,dataset, model,loss)
+                    makeAverageLossGraph(trainpercentage,dataset, model,loss)
                     makeBestResultLossGraph(trainpercentage,dataset, model,loss)
                     # for seed in seeds:
                     #     makeInversionGraph(model, dataset, seed,loss=loss, index=index, trainpercentage=tp, EnhanceImages=EnhanceImages,convertColor=convertColor, Classes=Classes, outdir="Results/Graphs/")
@@ -329,6 +356,7 @@ def MakeLabelsCSV(folderpath,modelpath,batch_size=64,outfile="Results/Size_64_64
     with open(outfile,"a") as f:
         f.writelines(lables)
 
+
 def formatPredCsvFiles(predfile="Results/Size_64_64/CSVFiles/Pred.csv",outfile="PredAccuracy.csv"):
     outfile="/".join(predfile.split("/")[:-1])+"/"+outfile
     df=pd.read_csv(predfile)
@@ -356,5 +384,6 @@ if __name__ == '__main__':
     # for sk in [0,5,50,100,500]:
     #     MakeLossGraphs(Train=[30],skipiter=sk,datalist=["food"])
     # MakePredLabelFileCsv()
+
 
 
